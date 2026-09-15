@@ -116,7 +116,8 @@ function buildCharacterAndRules() {
 4. 【アーティストの多様性】選出する5曲は、必ずすべて異なるアーティストにすること。加えて、似た系統の曲が連続しないよう配慮すること。
 5. 【リリース年の確認】「最近の洋楽」「最近の邦楽」を選定する際は、検索結果の記事が書かれた日付ではなく、その楽曲自体の実際のリリース年（西暦）を、今日の日付を基準に確認すること。年号が明記されていない場合でも、「新曲」「ニューアルバム収録曲」等の文脈から過去5年以内のリリースと合理的に判断できるものは、積極的に候補に含めること。
 6. 【選曲の幅の担保】検索結果やリストの中に選択肢が複数ある場合、無難で知名度の高い曲・アーティストにばかり偏らず、できるだけ幅広い候補から選出すること。似た系統の曲ばかりを並べないよう意識せよ。
-7. 【公式MVの確認】各曲について、検索結果や自身の知識をもとに公式ミュージックビデオがYouTube上に存在するか確認し、存在する場合はそのURLを、判断できない場合は空欄にすること。`;
+7. 【公式MVの確認】各曲について、検索結果や自身の知識をもとに公式ミュージックビデオがYouTube上に存在するか確認し、存在する場合はそのURLを、判断できない場合は空欄にすること。
+8. 【アイドルグループ楽曲の除外傾向】大人数アイドルグループの楽曲（パートが細かく分割されている、振り付け重視で一人あたりの歌唱パートが短い、歌唱力よりもパフォーマンス性が主目的の曲など）は、ボーカル課題曲としては原則選ばないこと。ソロアーティストやバンド、あるいは実力派グループの楽曲を優先すること。`;
 }
 
 function buildUserPrompt({ musicType, gender, range, difficulty, songMood, vocalCharacter, vocalSkill, todayStr, referenceContext }) {
@@ -241,7 +242,7 @@ export default async function handler(req, res) {
       const moodPart = songMood && songMood !== '指定なし' ? ` ${songMood}` : '';
       const query = isWestern
         ? `best new English pop R&B songs 2025 2026 official music video${moodPart}`
-        : `邦楽 新曲 2025年 2026年 おすすめ 公式MV${moodPart}`;
+        : `邦楽 新曲 2025年 2026年 おすすめ 歌唱力 様々なアーティスト 公式MV${moodPart}`;
 
       const searchResult = await tavilySearch(query);
       referenceContext = `以下はTavily検索によるネット上の最新情報です。\n\n${searchResult}`;
