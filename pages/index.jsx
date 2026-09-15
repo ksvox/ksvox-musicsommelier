@@ -107,7 +107,7 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMsg(data?.error || '選曲中にエラーが発生しました。もう一度お試しください。');
+         const baseMsg = data?.error || '選曲中にエラーが発生しました。もう一度お試しください。'; const detail = data?.debugDetail ? `\n[詳細] ${data.debugDetail}` : ''; setErrorMsg(baseMsg + detail);
         setLoading(false);
         return;
       }
