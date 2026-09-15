@@ -1,0 +1,76 @@
+html, body {
+  min-height: 100%;
+  background-color: #0f131a;
+  font-family: 'Inter', 'Noto Sans JP', sans-serif;
+  color: #f1f5f9;
+}
+
+/* Glassmorphism Panel */
+.sommelier-panel {
+  background: rgba(23, 29, 39, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(250, 204, 21, 0.22);
+}
+
+/* Light Output Panel */
+.sommelier-output-panel {
+  background-color: #fcfcfb;
+}
+
+/* Glowing Lemon Borders */
+.lemon-glow-border {
+  border: 1px solid #facc15;
+  box-shadow: 0 0 15px rgba(250, 204, 21, 0.15);
+}
+
+/* Audio Waveform Animation */
+.equalizer-bar {
+  animation: bounce 1.2s ease-in-out infinite alternate;
+}
+.equalizer-bar:nth-child(2n) { animation-delay: 0.2s; }
+.equalizer-bar:nth-child(3n) { animation-delay: 0.4s; }
+.equalizer-bar:nth-child(4n) { animation-delay: 0.1s; }
+.equalizer-bar:nth-child(5n) { animation-delay: 0.5s; }
+
+@keyframes bounce {
+  0% { transform: scaleY(0.2); }
+  100% { transform: scaleY(1); }
+}
+
+/* Custom Dropdown Styling */
+select option {
+  background-color: #171d27;
+  color: #ffffff;
+}
+
+/* Radio Toggle Custom Buttons */
+.choice-btn.active {
+  background-color: #facc15;
+  color: #0f131a;
+  font-weight: 800;
+  border-color: #facc15;
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.3);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #0f131a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #facc15;
+}
+
+/* PR Banner Background Container */
+.pr-banner-bg {
+  background-size: cover;
+  background-position: center;
+}
