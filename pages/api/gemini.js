@@ -298,6 +298,6 @@ export default async function handler(req, res) {
     res.status(200).json(parsed);
   } catch (err) {
     console.error('kadaikyoku-ai-sommelier gemini handler error:', err);
-    res.status(500).json({ error: '選曲中にエラーが発生しました。もう一度お試しください。' });
+    res.status(500).json({ error: '選曲中にエラーが発生しました。もう一度お試しください。', debugDetail: String(err && err.message ? err.message : err), }); 
   }
 }
