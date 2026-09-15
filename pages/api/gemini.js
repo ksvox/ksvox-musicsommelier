@@ -1,8 +1,7 @@
 // pages/api/gemini.js
 // 課題曲AIソムリエ - Gemini API呼び出し用サーバーサイドAPIルート
-// 2段階呼び出し方式:
-//   ①検索担当: Google検索グラウンディングをONにして5曲を選定(自由文で出力)
-//   ②整形担当: 検索なしで①の結果を指定のJSONスキーマに変換
+// 「最近の洋楽/邦楽」はTavily Searchでネット検索し、その結果とあわせてGeminiに1回で渡す
+// 「洋楽/邦楽スタンダード」は楽曲リスト.txtを参照データとして渡す(検索なし)
 
 import fs from 'fs';
 import path from 'path';
@@ -22,6 +21,42 @@ function filterSongListByLanguage(rawText, lang) {
   return filtered.join('\n\n');
 }
 
+async function tavilySearch(query) {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) {
+    throw new Error('TAVILY_API_KEYが設定されていません。');
+  }
+
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      query,
+      search_depth: 'basic',
+      max_results: 8,
+      include_answer: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Tavily API error (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  let text = '';
+  if (data.answer) {
+    text += `[検索の要約]\n${data.answer}\n\n`;
+  }
+  (data.results || []).forEach((r, i) => {
+    text += `[検索結果${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}\n\n`;
+  });
+  return text.trim();
+}
+
 function buildCharacterAndRules() {
   return `# あなたの役割
 五反田の門弟制ボーカルスクール「ボーカル道場K's VOX」主宰・NOBU先生（50代女性・プロボーカル講師・芸歴30年以上）の分身「課題曲ソムリエ」です。ユーザー（生徒）の条件に合致するおすすめの課題曲を5曲厳選し、プロとしての指導・アドバイスを提示しなさい。
@@ -38,7 +73,7 @@ function buildCharacterAndRules() {
 - 【広め】（女性1.5オクターブ半以上／男性2オクターブ以上）
   - 単に1音だけ高い/低い曲ではなく、メロディラインの移動が激しい曲や、楽段でレンジが異なるスケール感の強い曲を選定。
   - 指導：「端から端までのスケール練習をすること」「サビでの音圧や響きのポジションを体に落とし、上下への繋がりを練習してね」と伝える。出ない音は裏声や調音によるフェイクをアドバイス。
-- 【narrow / 狭め】（1オクターブ前後）
+- 【狭め】（1オクターブ前後）
   - 一本調子な歌にならないよう、各楽段の個性を理解して構成を組み立てるよう指導。
   - 指導：中低音中心の曲では口先だけのボソボソ歌いにならないよう、呼吸を流し深い位置で支え、規則性のあるリズムを捉えるよう伝える。
 
@@ -81,31 +116,15 @@ function buildCharacterAndRules() {
 4. 【アーティストの多様性】選出する5曲は、必ずすべて異なるアーティストにすること。加えて、似た系統の曲が連続しないよう配慮すること。
 5. 【リリース年の確認】「最近の洋楽」「最近の邦楽」を選定する際は、検索結果の記事が書かれた日付ではなく、その楽曲自体の実際のリリース年（西暦）を、今日の日付を基準に確認すること。年号が明記されていない場合でも、「新曲」「ニューアルバム収録曲」等の文脈から過去5年以内のリリースと合理的に判断できるものは、積極的に候補に含めること。
 6. 【選曲の幅の担保】検索結果やリストの中に選択肢が複数ある場合、無難で知名度の高い曲・アーティストにばかり偏らず、できるだけ幅広い候補から選出すること。似た系統の曲ばかりを並べないよう意識せよ。
-7. 【公式MVの確認】各曲について、公式ミュージックビデオがYouTube上に存在するか検索で確認し、存在する場合はそのURLを、存在しない場合はその旨を明記すること。`;
+7. 【公式MVの確認】各曲について、検索結果や自身の知識をもとに公式ミュージックビデオがYouTube上に存在するか確認し、存在する場合はそのURLを、判断できない場合は空欄にすること。`;
 }
 
-function buildPhase1Prompt({ musicType, gender, range, difficulty, songMood, vocalCharacter, vocalSkill, todayStr, songListContext }) {
-  const isRecent = musicType.includes('最近の');
-  const isWestern = musicType.includes('洋楽');
-
-  let sourceInstruction = '';
-  if (isRecent) {
-    sourceInstruction = `# 参照データについて
-「${musicType}」が指定されています。Google検索を使って、${isWestern ? '海外' : '日本'}の楽曲の中から、今日の日付(${todayStr})を基準に過去5年以内にリリースされた曲を探して候補にすること。`;
-  } else {
-    sourceInstruction = `# 参照データについて
-「${musicType}」が指定されています。以下の「楽曲リスト」を最優先の候補源とし、必要に応じてGoogle検索で公式MVの有無や補足情報を確認すること。
-
-## 楽曲リスト
-${songListContext}`;
-  }
-
-  return `${buildCharacterAndRules()}
-
-${sourceInstruction}
-
-# 今日の日付
+function buildUserPrompt({ musicType, gender, range, difficulty, songMood, vocalCharacter, vocalSkill, todayStr, referenceContext }) {
+  return `# 今日の日付
 ${todayStr}
+
+# 参照データ
+${referenceContext}
 
 # ユーザーの入力条件
 - 曲の種類: ${musicType}
@@ -116,77 +135,47 @@ ${todayStr}
 - 声の雰囲気: ${vocalCharacter}
 - 強化したいボーカルスキル: ${vocalSkill}
 
-# 出力形式
-前置きは一切抜きで、以下の形式で5曲分を出力すること（JSONではなく読みやすいプレーンテキストでよい）。
+# 出力形式（重要：装飾やコードブロック記号は一切使わず、以下のJSONスキーマのみで出力すること）
 
-【1曲目：曲名 / アーティスト名 (リリース年)】
-公式MV: あり(URL) または なし
-理由: (選曲基準に合致した理由。250文字程度)
-アドバイス: (先生のカンペとAI独自のボーカルテクニック解析を融合させた深いアドバイス。250文字程度)
-
-【2曲目：...】
-【3曲目：...】
-【4曲目：...】
-【5曲目：...】
-
-最後に、門弟の背中を押すお茶目な一言応援メッセージ（150字以内）を1つ書くこと。`;
-}
-
-function buildPhase2Prompt(rawText) {
-  return `以下は、ボーカルコーチが選定した5曲の課題曲とアドバイスの文章です。この内容を、そのままの情報を保ちつつ、次のJSONスキーマだけに整形してください。
-前置き・説明・コードブロック記号（\`\`\`json など）は一切出力せず、有効なJSONのみを返してください。
-
-# JSONスキーマ
 {
   "songs": [
     {
       "title": "曲名",
       "artist": "アーティスト名",
       "year": "リリース年(西暦、分からなければ空文字)",
-      "mvUrl": "公式MVのYouTube URL。無い場合は空文字",
+      "mvUrl": "公式MVのYouTube URL。無い/不明な場合は空文字",
       "mvStatus": "「公式MVあり」または「公式MVは見つかりません」",
-      "reason": "選定理由の全文(原文の情報を削らずそのまま反映)",
-      "advice": "アドバイスの全文(原文の情報を削らずそのまま反映)"
+      "reason": "選定理由(250文字程度)",
+      "advice": "先生のカンペとAI独自のボーカルテクニック解析を融合させたアドバイス(250文字程度)"
     }
   ],
-  "closingMessage": "最後のお茶目な応援メッセージ(150字以内)"
+  "closingMessage": "門弟の背中を押すお茶目な一言応援メッセージ(150字以内)"
 }
 
-songsは必ず5件にすること。
-
-# 変換元テキスト
-${rawText}`;
+songsは必ず5件にすること。`;
 }
 
-async function callGemini({ apiKey, model, systemPrompt, userText, useSearch, jsonMode }) {
-  const body = {
-    system_instruction: {
-      parts: [{ text: systemPrompt }],
-    },
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: userText }],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.6,
-    },
-  };
-
-  if (useSearch) {
-    body.tools = [{ google_search: {} }];
-  }
-  if (jsonMode) {
-    body.generationConfig.responseMimeType = 'application/json';
-  }
-
+async function callGemini({ apiKey, model, systemPrompt, userText }) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        system_instruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: userText }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.6,
+          responseMimeType: 'application/json',
+        },
+      }),
     }
   );
 
@@ -244,20 +233,26 @@ export default async function handler(req, res) {
     day: 'numeric',
   });
 
-  let songListContext = '';
-  if (!musicType.includes('最近の')) {
-    const lang = musicType.includes('洋楽') ? '洋楽' : '邦楽';
-    try {
-      const rawList = loadSongListText();
-      songListContext = filterSongListByLanguage(rawList, lang);
-    } catch (err) {
-      console.error('song-list.txt read error:', err);
-    }
-  }
-
   try {
-    // Phase 1: 検索担当(Google検索グラウンディングON)
-    const phase1Prompt = buildPhase1Prompt({
+    let referenceContext = '';
+
+    if (musicType.includes('最近の')) {
+      const isWestern = musicType.includes('洋楽');
+      const moodPart = songMood && songMood !== '指定なし' ? ` ${songMood}` : '';
+      const query = isWestern
+        ? `best new English pop R&B songs 2025 2026 official music video${moodPart}`
+        : `邦楽 新曲 2025年 2026年 おすすめ 公式MV${moodPart}`;
+
+      const searchResult = await tavilySearch(query);
+      referenceContext = `以下はTavily検索によるネット上の最新情報です。\n\n${searchResult}`;
+    } else {
+      const lang = musicType.includes('洋楽') ? '洋楽' : '邦楽';
+      const rawList = loadSongListText();
+      referenceContext = `以下は事前に用意された楽曲リストです。\n\n${filterSongListByLanguage(rawList, lang)}`;
+    }
+
+    const systemPrompt = buildCharacterAndRules();
+    const userPrompt = buildUserPrompt({
       musicType,
       gender,
       range,
@@ -266,38 +261,28 @@ export default async function handler(req, res) {
       vocalCharacter,
       vocalSkill,
       todayStr,
-      songListContext,
+      referenceContext,
     });
 
-    const phase1Result = await callGemini({
+    const rawResult = await callGemini({
       apiKey,
       model,
-      systemPrompt: phase1Prompt,
-      userText: '上記の条件に基づいて、課題曲を5曲選定してください。',
-      useSearch: true,
-      jsonMode: false,
+      systemPrompt,
+      userText: userPrompt,
     });
 
-    // Phase 2: 整形担当(検索OFF、JSON化)
-    const phase2Prompt = buildPhase2Prompt(phase1Result);
-    const phase2Result = await callGemini({
-      apiKey,
-      model,
-      systemPrompt: '与えられたテキストを指定のJSONスキーマに正確に変換するアシスタントです。',
-      userText: phase2Prompt,
-      useSearch: false,
-      jsonMode: true,
-    });
-
-    const parsed = extractJson(phase2Result);
+    const parsed = extractJson(rawResult);
 
     if (!parsed.songs || parsed.songs.length === 0) {
-      throw new Error('曲データの整形に失敗しました');
+      throw new Error('曲データの生成に失敗しました');
     }
 
     res.status(200).json(parsed);
   } catch (err) {
     console.error('kadaikyoku-ai-sommelier gemini handler error:', err);
-    res.status(500).json({ error: '選曲中にエラーが発生しました。もう一度お試しください。', debugDetail: String(err && err.message ? err.message : err), }); 
+    res.status(500).json({
+      error: '選曲中にエラーが発生しました。もう一度お試しください。',
+      debugDetail: String(err && err.message ? err.message : err),
+    });
   }
 }

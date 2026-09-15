@@ -107,7 +107,9 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-         const baseMsg = data?.error || '選曲中にエラーが発生しました。もう一度お試しください。'; const detail = data?.debugDetail ? `\n[詳細] ${data.debugDetail}` : ''; setErrorMsg(baseMsg + detail);
+        const baseMsg = data?.error || '選曲中にエラーが発生しました。もう一度お試しください。';
+        const detail = data?.debugDetail ? `\n[詳細] ${data.debugDetail}` : '';
+        setErrorMsg(baseMsg + detail);
         setLoading(false);
         return;
       }
@@ -405,7 +407,9 @@ https://www.ksvox.net/
               </select>
             </div>
 
-            {errorMsg && <p className="text-xs font-bold text-rose-400">{errorMsg}</p>}
+            {errorMsg && (
+              <p className="text-xs font-bold text-rose-400 whitespace-pre-wrap break-words">{errorMsg}</p>
+            )}
 
             <button
               type="submit"
@@ -415,6 +419,9 @@ https://www.ksvox.net/
               <i className="fa-solid fa-wine-bottle"></i>{' '}
               {loading ? '選定中...' : '課題曲候補を5曲選定する'}
             </button>
+            <p className="text-center text-[11px] text-gray-400">
+              ※「最近の洋楽/邦楽」はネット検索を行うため、選定に少々お時間がかかる場合があります。
+            </p>
           </form>
         </section>
 
@@ -447,7 +454,7 @@ https://www.ksvox.net/
               <div className="py-12 text-center space-y-3 relative z-10">
                 <i className="fa-solid fa-wine-glass-empty fa-spin text-4xl text-yellow-600"></i>
                 <p className="text-sm font-bold text-slate-700">
-                  条件に合致するベスト課題曲を5曲ソムリエ選曲中...
+                  条件を確認し、ネット検索も含めてベスト課題曲を5曲ソムリエ選曲中...
                 </p>
               </div>
             ) : (
