@@ -188,7 +188,7 @@ https://www.ksvox.net/
 
       <div className="max-w-md md:max-w-3xl mx-auto px-4 pt-6 space-y-6 relative z-10">
         {/* HEADER */}
-        <header className="sommelier-panel rounded-2xl p-5 md:p-6 lemon-glow-border relative overflow-hidden shadow-2xl">
+        <header className="sommelier-header-panel rounded-2xl p-5 md:p-6 lemon-glow-border relative overflow-hidden shadow-2xl">
           <div className="absolute right-4 bottom-2 flex items-end gap-1 h-12 opacity-30 pointer-events-none select-none">
             <div className="equalizer-bar w-1.5 h-10 rounded-full bg-gradient-to-t from-cyan-400 to-blue-500 origin-bottom"></div>
             <div className="equalizer-bar w-1.5 h-6 rounded-full bg-gradient-to-t from-pink-500 to-rose-400 origin-bottom"></div>
@@ -202,11 +202,11 @@ https://www.ksvox.net/
 
           <div className="flex items-center justify-between border-b border-gray-700/80 pb-4 mb-3 relative z-10">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-sommelier-lemon flex items-center justify-center p-0.5 shadow-lg shadow-yellow-500/20 flex-shrink-0">
+              <div className="w-11 h-11 flex items-center justify-center flex-shrink-0">
                 <img
                   src="/logo.png"
                   alt="課題曲AIソムリエ Logo"
-                  className="w-full h-full object-contain rounded-lg"
+                  className="w-full h-full object-contain"
                 />
               </div>
               <div>
