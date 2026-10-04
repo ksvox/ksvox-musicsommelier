@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react';
 import Head from 'next/head';
+import KsBlocked from '../components/KsBlocked';
+import { gateProps } from '../lib/ksGate';
 
 const PLAYLISTS = [
   {
@@ -58,7 +60,7 @@ function ChoiceButtonGroup({ options, value, onChange, columns = 2 }) {
   );
 }
 
-export default function Home() {
+function Home() {
   const [musicType, setMusicType] = useState('洋楽スタンダード');
   const [gender, setGender] = useState('女性');
   const [range, setRange] = useState('普通');
@@ -646,4 +648,14 @@ https://www.ksvox.net/
       </div>
     </>
   );
+}
+
+// ---- 門弟アプリ経由のみで開けるようにする入口 ----
+export async function getServerSideProps(ctx) {
+  return gateProps(ctx);
+}
+
+export default function Page({ ksAllowed }) {
+  if (!ksAllowed) return <KsBlocked appName="課題曲AIソムリエ" />;
+  return <Home />;
 }

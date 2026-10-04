@@ -1,3 +1,4 @@
+import { hasPass } from '../../lib/ksGate';
 // pages/api/gemini.js
 // 課題曲AIソムリエ - Gemini API呼び出し用サーバーサイドAPIルート
 // 「最近の洋楽/邦楽」はTavily Searchでネット検索し、その結果とあわせてGeminiに1回で渡す
@@ -204,6 +205,11 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method Not Allowed' });
     return;
+  }
+
+  // 門弟アプリ経由で開いた人だけ利用できる
+  if (!hasPass(req)) {
+    return res.status(403).json({ error: '利用時間が切れました。門弟アプリからもう一度開いてください。' });
   }
 
   const {
