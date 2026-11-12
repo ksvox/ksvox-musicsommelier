@@ -54,8 +54,8 @@ function difficultyToLevel(difficulty) {
 }
 
 // スタンダード系：言語・性別で絞り込み → 音域/難易度の合う曲を優先しつつ、毎回ランダムに候補を選ぶ
-function buildStandardCandidates(rawText, { lang, gender, range, difficulty }) {
-  const CANDIDATE_COUNT = 12;
+function buildStandardCandidates(rawText, { lang, gender, range, difficulty, count = 12 }) {
+  const CANDIDATE_COUNT = count;
   const all = parseSongList(rawText).filter((song) => song.type.includes(lang));
 
   // 性別が一致する曲を優先。足りない時だけ異性曲も候補に加える
@@ -80,7 +80,7 @@ function buildStandardCandidates(rawText, { lang, gender, range, difficulty }) {
   return shuffle(picked).map((song) => song.raw).join('\n\n');
 }
 
-async function tavilySearchRaw(query) {
+async function tavilySearchRaw(query, options = {}) {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) {
     throw new Error('TAVILY_API_KEYが設定されていません。');
@@ -96,7 +96,7 @@ async function tavilySearchRaw(query) {
       query,
       search_depth: 'basic',
       max_results: 8,
-      time_range: 'year',
+      ...(options.timeRange ? { time_range: options.timeRange } : {}),
     }),
   });
 
@@ -110,8 +110,8 @@ async function tavilySearchRaw(query) {
 }
 
 // 条件に合わせた違う切り口の検索を2本同時に行い、結果を混ぜて順番もシャッフルする
-async function tavilySearchMany(queries) {
-  const settled = await Promise.all(queries.map((q) => tavilySearchRaw(q)));
+async function tavilySearchMany(queries, options = {}) {
+  const settled = await Promise.all(queries.map((q) => tavilySearchRaw(q, options)));
   const seen = new Set();
   const merged = [];
   settled.flat().forEach((r) => {
@@ -160,6 +160,47 @@ function buildRecentQueries({ isWestern, gender, songMood, vocalCharacter, vocal
   const q2 = isWestern
     ? `${angle2En} ${year} ${genderEn} artist`
     : `${angle2Ja} ${year}年 ${genderJa}アーティスト`;
+
+  return [q1.replace(/\s+/g, ' ').trim(), q2.replace(/\s+/g, ' ').trim()];
+}
+
+// 「スタンダード」用：昔から愛される定番曲を探す検索語(年の指定はしない)。毎回違う切り口で2本
+function buildStandardQueries({ isWestern, gender, songMood, vocalCharacter, difficulty }) {
+  const genderEn = gender === '男性' ? 'male' : 'female';
+  const genderJa = gender === '男性' ? '男性' : '女性';
+  const moodJaMap = { 'おしゃれ': 'おしゃれ', '踊れる': 'ダンス', '泣ける': 'バラード 切ない', '励まされる': '応援ソング', '癒される': '癒し' };
+  const moodEnMap = { 'おしゃれ': 'stylish smooth', '踊れる': 'dance groove', '泣ける': 'emotional ballad', '励まされる': 'uplifting', '癒される': 'soothing calm' };
+  const hasMood = songMood && songMood !== '指定なし';
+
+  let vocalEn = '';
+  let vocalJa = '';
+  if (vocalCharacter && vocalCharacter !== '指定なし') {
+    if (vocalCharacter.startsWith('パワフル')) { vocalEn = 'powerful vocals'; vocalJa = 'パワフル'; }
+    else if (vocalCharacter.startsWith('シルキー')) { vocalEn = 'falsetto silky vocals'; vocalJa = 'ファルセット 透明感'; }
+    else if (vocalCharacter.startsWith('ハスキー')) { vocalEn = 'husky raspy vocals'; vocalJa = 'ハスキー'; }
+    else if (vocalCharacter.startsWith('マイルド')) { vocalEn = 'mellow warm vocals'; vocalJa = '優しい歌声'; }
+  }
+
+  const levelEn = difficulty === '高め' ? 'challenging vocal' : difficulty === '低め' ? 'easy to sing' : '';
+  const levelJa = difficulty === '高め' ? '歌唱力が試される' : difficulty === '低め' ? '歌いやすい' : '';
+
+  const angleEn = pickOne([
+    'soul R&B classics', 'pop ballad classics', '80s hits', '90s hits', 'timeless love songs',
+    'jazz vocal standards', 'rock classics', 'Motown', 'singer-songwriter classics',
+  ]);
+  const angleJa = pickOne([
+    '昭和 名曲', '平成 名曲', 'J-POP 不朽の名曲', 'バラード 名曲', 'カラオケ 定番', 'ロック 名曲', '90年代 ヒット曲', '2000年代 ヒット曲',
+  ]);
+
+  const q1 = isWestern
+    ? `timeless classic ${genderEn} vocalist songs ${angleEn} ${hasMood ? moodEnMap[songMood] || '' : ''} ${vocalEn} ${levelEn}`
+    : `${genderJa}ボーカル 名曲 スタンダード ${angleJa} ${hasMood ? moodJaMap[songMood] || '' : ''} ${vocalJa} ${levelJa}`;
+
+  const decadeEn = pickOne(['1960s 1970s', '1980s', '1990s', '2000s']);
+  const decadeJa = pickOne(['昭和', '1990年代', '2000年代', '2010年代']);
+  const q2 = isWestern
+    ? `best ${genderEn} singer songs of all time ${decadeEn} must-sing vocal`
+    : `${decadeJa} 名曲 ${genderJa}アーティスト 歌が上手い 定番`;
 
   return [q1.replace(/\s+/g, ' ').trim(), q2.replace(/\s+/g, ' ').trim()];
 }
@@ -224,7 +265,7 @@ function buildCharacterAndRules() {
 5. 【リリース年の確認】「最近の洋楽」「最近の邦楽」を選定する際は、検索結果の記事が書かれた日付ではなく、その楽曲自体の実際のリリース年（西暦）を、今日の日付を基準に確認すること。年号が明記されていない場合でも、「新曲」「ニューアルバム収録曲」等の文脈から過去5年以内のリリースと合理的に判断できるものは、積極的に候補に含めること。
 6. 【選曲の幅の担保】検索結果やリストの中に選択肢が複数ある場合、無難で知名度の高い曲・アーティストにばかり偏らず、できるだけ幅広い候補から選出すること。似た系統の曲ばかりを並べないよう意識せよ。
 7. 【公式MVの確認】各曲について、検索結果や自身の知識をもとに公式ミュージックビデオがYouTube上に存在するか確認し、存在する場合はそのURLを、判断できない場合は空欄にすること。
-9. 【毎回違う5曲を】毎回、顔ぶれが変わるように選ぶこと。提示された候補が複数ある場合、最初に目についた曲や定番曲に偏らず、条件に合う範囲で幅広く選出すること。\n8. 【アイドルグループ楽曲の除外傾向】大人数アイドルグループの楽曲（パートが細かく分割されている、振り付け重視で一人あたりの歌唱パートが短い、歌唱力よりもパフォーマンス性が主目的の曲など）は、ボーカル課題曲としては原則選ばないこと。ソロアーティストやバンド、あるいは実力派グループの楽曲を優先すること。`;
+9. 【毎回違う5曲を】毎回、顔ぶれが変わるように選ぶこと。提示された候補が複数ある場合、最初に目についた曲や定番曲に偏らず、条件に合う範囲で幅広く選出すること。\n10. 【スタンダードの定義】「洋楽スタンダード」「邦楽スタンダード」では、長く愛されている定番・名曲（原則リリースから10年以上経過した曲）を選ぶこと。検索結果を中心に選び、提示された手持ちの候補リストの曲は補助として1〜2曲程度加えること（リストに合う曲が無ければ無理に入れない）。\n8. 【アイドルグループ楽曲の除外傾向】大人数アイドルグループの楽曲（パートが細かく分割されている、振り付け重視で一人あたりの歌唱パートが短い、歌唱力よりもパフォーマンス性が主目的の曲など）は、ボーカル課題曲としては原則選ばないこと。ソロアーティストやバンド、あるいは実力派グループの楽曲を優先すること。`;
 }
 
 function buildUserPrompt({ musicType, gender, range, difficulty, songMood, vocalCharacter, vocalSkill, todayStr, referenceContext }) {
@@ -354,13 +395,29 @@ export default async function handler(req, res) {
       const year = new Date().getFullYear();
       const queries = buildRecentQueries({ isWestern, gender, songMood, vocalCharacter, vocalSkill, year });
 
-      const searchResult = await tavilySearchMany(queries);
+      const searchResult = await tavilySearchMany(queries, { timeRange: 'year' });
       referenceContext = `以下はTavily検索によるネット上の最新情報です(毎回違う切り口で検索しています)。\n\n${searchResult}`;
     } else {
-      const lang = musicType.includes('洋楽') ? '洋楽' : '邦楽';
+      const isWestern = musicType.includes('洋楽');
+      const lang = isWestern ? '洋楽' : '邦楽';
       const rawList = loadSongListText();
-      const candidates = buildStandardCandidates(rawList, { lang, gender, range, difficulty });
-      referenceContext = `以下は、今回の条件に合わせて事前に絞り込んだ候補曲リストです。この中から5曲を選んでください。\n\n${candidates}`;
+
+      let searchResult = '';
+      try {
+        const queries = buildStandardQueries({ isWestern, gender, songMood, vocalCharacter, difficulty });
+        searchResult = await tavilySearchMany(queries);
+      } catch (searchErr) {
+        // 検索がうまくいかない時は、リストだけで選曲を続ける
+        console.error('standard search failed, fallback to list only:', searchErr);
+      }
+
+      if (searchResult) {
+        const candidates = buildStandardCandidates(rawList, { lang, gender, range, difficulty, count: 8 });
+        referenceContext = `【メイン】以下はTavily検索によるネット上の定番曲・名曲の情報です(毎回違う切り口で検索しています)。この検索結果を中心に5曲を選んでください。\n\n${searchResult}\n\n【補助】以下は先生が用意した手持ちの候補曲リストです。条件に合う曲があれば1〜2曲程度加えてください。\n\n${candidates}`;
+      } else {
+        const candidates = buildStandardCandidates(rawList, { lang, gender, range, difficulty, count: 12 });
+        referenceContext = `以下は、今回の条件に合わせて事前に絞り込んだ候補曲リストです。この中から5曲を選んでください。\n\n${candidates}`;
+      }
     }
 
     const systemPrompt = buildCharacterAndRules();
