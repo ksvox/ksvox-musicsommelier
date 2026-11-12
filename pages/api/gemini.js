@@ -12,17 +12,75 @@ function loadSongListText() {
   return fs.readFileSync(filePath, 'utf-8');
 }
 
-// 「洋楽」または「邦楽」に該当するブロックだけを楽曲リストから抽出する
-function filterSongListByLanguage(rawText, lang) {
-  const blocks = rawText.split(/\r?\n\r?\n+/).map((b) => b.trim()).filter(Boolean);
-  const filtered = blocks.filter((block) => {
-    const match = block.match(/曲の種類:\s*(.+)/);
-    return match && match[1].includes(lang);
-  });
-  return filtered.join('\n\n');
+// ---- 共通ユーティリティ ----
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
-async function tavilySearch(query) {
+function pickOne(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// 楽曲リストを1曲ずつのデータに分解する
+function parseSongList(rawText) {
+  const blocks = rawText.split(/\r?\n\r?\n+/).map((b) => b.trim()).filter(Boolean);
+  return blocks
+    .map((block) => {
+      const get = (key) => {
+        const m = block.match(new RegExp(`${key}:\\s*(.+)`));
+        return m ? m[1].trim() : '';
+      };
+      return {
+        raw: block,
+        type: get('曲の種類'),
+        gender: get('原曲の性別'),
+        range: get('音域'),
+        level: get('難易度'),
+      };
+    })
+    .filter((song) => song.type);
+}
+
+// 画面の「高め/普通/低め」→ リストの「高/中/低」
+function difficultyToLevel(difficulty) {
+  if (difficulty === '高め') return '高';
+  if (difficulty === '低め') return '低';
+  return '中';
+}
+
+// スタンダード系：言語・性別で絞り込み → 音域/難易度の合う曲を優先しつつ、毎回ランダムに候補を選ぶ
+function buildStandardCandidates(rawText, { lang, gender, range, difficulty }) {
+  const CANDIDATE_COUNT = 12;
+  const all = parseSongList(rawText).filter((song) => song.type.includes(lang));
+
+  // 性別が一致する曲を優先。足りない時だけ異性曲も候補に加える
+  let pool = all.filter((song) => song.gender === gender);
+  if (pool.length < 6) {
+    pool = pool.concat(shuffle(all.filter((song) => song.gender !== gender)).slice(0, 6 - pool.length));
+  }
+
+  const level = difficultyToLevel(difficulty);
+  const scored = pool.map((song) => {
+    let score = 0;
+    if (song.range === range) score += 2;
+    if (song.level === level) score += 2;
+    // ランダムな揺らぎを足して、毎回違う顔ぶれが上位に来るようにする
+    score += Math.random() * 2.5;
+    return { song, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  const picked = scored.slice(0, CANDIDATE_COUNT).map((x) => x.song);
+  // AIに渡す順番もシャッフル(先頭の曲に偏るのを防ぐ)
+  return shuffle(picked).map((song) => song.raw).join('\n\n');
+}
+
+async function tavilySearchRaw(query) {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) {
     throw new Error('TAVILY_API_KEYが設定されていません。');
@@ -38,7 +96,7 @@ async function tavilySearch(query) {
       query,
       search_depth: 'basic',
       max_results: 8,
-      include_answer: true,
+      time_range: 'year',
     }),
   });
 
@@ -48,14 +106,62 @@ async function tavilySearch(query) {
   }
 
   const data = await response.json();
-  let text = '';
-  if (data.answer) {
-    text += `[検索の要約]\n${data.answer}\n\n`;
-  }
-  (data.results || []).forEach((r, i) => {
-    text += `[検索結果${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}\n\n`;
+  return data.results || [];
+}
+
+// 条件に合わせた違う切り口の検索を2本同時に行い、結果を混ぜて順番もシャッフルする
+async function tavilySearchMany(queries) {
+  const settled = await Promise.all(queries.map((q) => tavilySearchRaw(q)));
+  const seen = new Set();
+  const merged = [];
+  settled.flat().forEach((r) => {
+    if (r && r.url && !seen.has(r.url)) {
+      seen.add(r.url);
+      merged.push(r);
+    }
   });
-  return text.trim();
+  return shuffle(merged)
+    .map((r, i) => `[検索結果${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}`)
+    .join('\n\n');
+}
+
+// 「最近の洋楽/邦楽」用：条件(性別・雰囲気・声質・スキル)と毎回変わる切り口を検索語に入れる
+function buildRecentQueries({ isWestern, gender, songMood, vocalCharacter, vocalSkill, year }) {
+  const genderEn = gender === '男性' ? 'male' : 'female';
+  const genderJa = gender === '男性' ? '男性' : '女性';
+  const moodJaMap = { 'おしゃれ': 'おしゃれ', '踊れる': 'ダンス', '泣ける': 'バラード 切ない', '励まされる': '応援ソング', '癒される': '癒し' };
+  const moodEnMap = { 'おしゃれ': 'stylish smooth', '踊れる': 'dance groove', '泣ける': 'emotional ballad', '励まされる': 'uplifting', '癒される': 'soothing calm' };
+  const hasMood = songMood && songMood !== '指定なし';
+
+  const angleEn = pickOne([
+    'rising new artists', 'best vocal performances', 'new album tracks', 'streaming hits', 'critics picks',
+    'indie pop', 'soul R&B', 'rock band', 'singer-songwriter',
+  ]);
+  const angleJa = pickOne([
+    '注目の新曲', '歌唱力 高評価', 'ニューアルバム 収録曲', 'ヒット曲 ランキング', '新人アーティスト',
+    'バンド', 'シンガーソングライター', 'R&B ソウル', 'ポップス',
+  ]);
+
+  let vocalEn = '';
+  let vocalJa = '';
+  if (vocalCharacter && vocalCharacter !== '指定なし') {
+    if (vocalCharacter.startsWith('パワフル')) { vocalEn = 'powerful vocals'; vocalJa = 'パワフル'; }
+    else if (vocalCharacter.startsWith('シルキー')) { vocalEn = 'falsetto silky vocals'; vocalJa = 'ファルセット 透明感'; }
+    else if (vocalCharacter.startsWith('ハスキー')) { vocalEn = 'husky raspy vocals'; vocalJa = 'ハスキー'; }
+    else if (vocalCharacter.startsWith('マイルド')) { vocalEn = 'mellow warm vocals'; vocalJa = '優しい歌声'; }
+  }
+
+  const q1 = isWestern
+    ? `new ${genderEn} singer songs ${year - 1} ${year} ${angleEn} ${hasMood ? moodEnMap[songMood] || '' : ''} ${vocalEn}`
+    : `${genderJa}ボーカル 新曲 ${year - 1}年 ${year}年 ${angleJa} ${hasMood ? moodJaMap[songMood] || '' : ''} ${vocalJa}`;
+
+  const angle2En = pickOne(['official music video new release', 'best songs of the year so far', 'vocal showcase new single']);
+  const angle2Ja = pickOne(['公式MV 新曲', '今年のベストソング', '歌が上手い 新曲 おすすめ']);
+  const q2 = isWestern
+    ? `${angle2En} ${year} ${genderEn} artist`
+    : `${angle2Ja} ${year}年 ${genderJa}アーティスト`;
+
+  return [q1.replace(/\s+/g, ' ').trim(), q2.replace(/\s+/g, ' ').trim()];
 }
 
 function buildCharacterAndRules() {
@@ -118,7 +224,7 @@ function buildCharacterAndRules() {
 5. 【リリース年の確認】「最近の洋楽」「最近の邦楽」を選定する際は、検索結果の記事が書かれた日付ではなく、その楽曲自体の実際のリリース年（西暦）を、今日の日付を基準に確認すること。年号が明記されていない場合でも、「新曲」「ニューアルバム収録曲」等の文脈から過去5年以内のリリースと合理的に判断できるものは、積極的に候補に含めること。
 6. 【選曲の幅の担保】検索結果やリストの中に選択肢が複数ある場合、無難で知名度の高い曲・アーティストにばかり偏らず、できるだけ幅広い候補から選出すること。似た系統の曲ばかりを並べないよう意識せよ。
 7. 【公式MVの確認】各曲について、検索結果や自身の知識をもとに公式ミュージックビデオがYouTube上に存在するか確認し、存在する場合はそのURLを、判断できない場合は空欄にすること。
-8. 【アイドルグループ楽曲の除外傾向】大人数アイドルグループの楽曲（パートが細かく分割されている、振り付け重視で一人あたりの歌唱パートが短い、歌唱力よりもパフォーマンス性が主目的の曲など）は、ボーカル課題曲としては原則選ばないこと。ソロアーティストやバンド、あるいは実力派グループの楽曲を優先すること。`;
+9. 【毎回違う5曲を】毎回、顔ぶれが変わるように選ぶこと。提示された候補が複数ある場合、最初に目についた曲や定番曲に偏らず、条件に合う範囲で幅広く選出すること。\n8. 【アイドルグループ楽曲の除外傾向】大人数アイドルグループの楽曲（パートが細かく分割されている、振り付け重視で一人あたりの歌唱パートが短い、歌唱力よりもパフォーマンス性が主目的の曲など）は、ボーカル課題曲としては原則選ばないこと。ソロアーティストやバンド、あるいは実力派グループの楽曲を優先すること。`;
 }
 
 function buildUserPrompt({ musicType, gender, range, difficulty, songMood, vocalCharacter, vocalSkill, todayStr, referenceContext }) {
@@ -174,7 +280,7 @@ async function callGemini({ apiKey, model, systemPrompt, userText }) {
           },
         ],
         generationConfig: {
-          temperature: 0.6,
+          temperature: 1.0,
           responseMimeType: 'application/json',
         },
       }),
@@ -245,17 +351,16 @@ export default async function handler(req, res) {
 
     if (musicType.includes('最近の')) {
       const isWestern = musicType.includes('洋楽');
-      const moodPart = songMood && songMood !== '指定なし' ? ` ${songMood}` : '';
-      const query = isWestern
-        ? `best new English pop R&B songs 2025 2026 official music video${moodPart}`
-        : `邦楽 新曲 2025年 2026年 おすすめ 歌唱力 様々なアーティスト 公式MV${moodPart}`;
+      const year = new Date().getFullYear();
+      const queries = buildRecentQueries({ isWestern, gender, songMood, vocalCharacter, vocalSkill, year });
 
-      const searchResult = await tavilySearch(query);
-      referenceContext = `以下はTavily検索によるネット上の最新情報です。\n\n${searchResult}`;
+      const searchResult = await tavilySearchMany(queries);
+      referenceContext = `以下はTavily検索によるネット上の最新情報です(毎回違う切り口で検索しています)。\n\n${searchResult}`;
     } else {
       const lang = musicType.includes('洋楽') ? '洋楽' : '邦楽';
       const rawList = loadSongListText();
-      referenceContext = `以下は事前に用意された楽曲リストです。\n\n${filterSongListByLanguage(rawList, lang)}`;
+      const candidates = buildStandardCandidates(rawList, { lang, gender, range, difficulty });
+      referenceContext = `以下は、今回の条件に合わせて事前に絞り込んだ候補曲リストです。この中から5曲を選んでください。\n\n${candidates}`;
     }
 
     const systemPrompt = buildCharacterAndRules();
