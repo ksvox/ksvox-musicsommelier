@@ -221,7 +221,7 @@ https://www.ksvox.net/
                   </span>
                 </div>
                 <p className="text-xs text-gray-400 font-medium mt-0.5">
-                  ボーカル分析AIがあなたの声質・スキルに最適な課題曲を厳選テイスティング
+                  ボーカル分析／AIがあなたの声質・スキルに最適な課題曲を厳選テイスティング
                 </p>
               </div>
             </div>
