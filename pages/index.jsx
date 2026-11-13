@@ -611,29 +611,10 @@ https://www.ksvox.net/
             </div>
           </div>
 
-          <a
-            href="https://www.ksvox.net/apply/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block group relative overflow-hidden rounded-2xl p-0.5 bg-gradient-to-r from-sommelier-lemon via-amber-400 to-amber-600 shadow-lg hover:shadow-yellow-500/20 transition transform hover:-translate-y-0.5"
-          >
-            <div className="pr-banner-bg bg-sommelier-panel/90 rounded-[14px] p-3.5 sm:p-4 flex items-center justify-between gap-3 relative z-10">
-              <div className="space-y-1 relative z-10">
-                <span className="text-[10px] font-black tracking-widest bg-yellow-400 text-sommelier-dark px-2 py-0.5 rounded shadow">
-                  門弟制ボーカルスクール
-                </span>
-                <h3 className="text-xs sm:text-sm font-extrabold text-white group-hover:text-sommelier-lemon transition leading-snug drop-shadow">
-                  本気で歌が上手くなりたいなら、
-                  <br className="hidden sm:block" />
-                  門弟制ボーカルスクールK&apos;s VOXへ
-                </h3>
-              </div>
-              <div className="flex-shrink-0 bg-sommelier-lemon text-sommelier-dark font-bold text-xs px-3 py-2 rounded-xl flex items-center gap-1 shadow group-hover:bg-yellow-300 transition relative z-10">
-                詳細 <i className="fa-solid fa-arrow-right"></i>
-              </div>
-            </div>
-          </a>
-
+          <p className="text-center text-[11px] text-gray-500 leading-relaxed">
+            もし不具合が生じたら、エラー内容を報告してください。
+          </p>
+          
           <footer className="text-center pt-1">
             <a
               href="https://www.ksvox.net"
